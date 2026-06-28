@@ -88,3 +88,44 @@ El esquema relacional cuenta con las siguientes entidades principales:
 Durante el proceso de pago (Paso 3 del stepper), puedes probar los siguientes códigos promocionales:
 - **`CINE2X1`**: Aplica un 50% de descuento en el costo total de las entradas seleccionadas.
 - **`JULIOS20`**: Aplica un 20% de descuento en el subtotal general (entradas + dulcería).
+
+---
+
+## 🛠️ Solución de Problemas en Túneles Públicos (CORS, SSR y Red Privada)
+
+Al exponer el proyecto a través de herramientas de túnel público como **Cloudflare Tunnels** o **Ngrok** para pruebas en otros dispositivos o compartir el sitio, pueden presentarse problemas comunes debido a las directivas de seguridad modernas de los navegadores y de la arquitectura de Inertia. A continuación, se detalla qué problemas ocurrieron y cómo se resolvieron:
+
+### 1. Bloqueo de CORS y Red Privada (Private Network Access) en HMR
+* **Problema:** En modo desarrollo (`npm run dev`), el navegador bloqueaba las tipografías y el CSS (`net::ERR_FAILED`) con el mensaje: *"Permission was denied for this request to access the `loopback` address space"*. Esto es porque Chrome/Edge bloquean que una web cargada en HTTPS público realice peticiones HTTP a la máquina local (`127.0.0.1` o `[::1]`).
+* **Solución:** Se configuraron cabeceras CORS de acceso a red privada en `vite.config.ts` para autorizar peticiones locales desde orígenes de túneles de desarrollo:
+  ```typescript
+  server: {
+      headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Private-Network': 'true',
+      },
+  }
+  ```
+
+### 2. Pestaña en Blanco Cargando Infinitamente (SSR de Inertia)
+* **Problema:** Tras apagar los procesos de desarrollo para compilar el sitio a producción (`npm run build`), la página web se quedaba congelada en blanco cargando de forma infinita. Esto ocurre porque el Server-Side Rendering (SSR) de Inertia estaba activado de forma obligatoria en `config/inertia.php`. Al no estar corriendo el servidor SSR local en el puerto `13714`, Laravel se quedaba colgado esperando una respuesta que nunca llegaba.
+* **Solución:** Se modificó `config/inertia.php` para que el SSR se lea desde las variables de entorno y se desactive por defecto en entornos de desarrollo/túnel:
+  ```php
+  'ssr' => [
+      'enabled' => env('INERTIA_SSR_ENABLED', false),
+  ]
+  ```
+  Para que surta efecto inmediato, es indispensable limpiar las cachés de Laravel:
+  ```bash
+  php artisan view:clear
+  php artisan config:clear
+  ```
+
+### 3. Error de CORS en Producción y Enlaces Rotos en Dispositivos Externos
+* **Problema:** Al acceder a la web en producción a través de la URL de Cloudflare, la página cargaba pero en negro debido a que el navegador bloqueaba el archivo `app.js` y `app.css` por CORS. Laravel intentaba cargarlos usando la URL absoluta del dominio local (`https://cinejulios.test/build/assets/...`) en lugar del dominio del túnel. Esto provocaba que en celulares o dispositivos externos no cargara nada (ya que no pueden resolver el dominio `cinejulios.test`).
+* **Solución:** Se configuró la variable de entorno `ASSET_URL` en el archivo `.env` apuntando a la raíz:
+  ```env
+  ASSET_URL=/
+  ```
+  Esto obliga a Laravel a generar paths relativos (ejemplo: `/build/assets/...` en lugar de `https://cinejulios.test/build/...`), resolviéndose de manera nativa y sin CORS bajo el dominio de Cloudflare en cualquier dispositivo.
+
